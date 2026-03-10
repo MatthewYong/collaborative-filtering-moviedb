@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Movie Recommender</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+    <div class="card single-card">
+        <h1>Rate Movies</h1>
+        <p class="subtitle">
+            Rate 10 movies to get recommendations.
+            Choosing <strong>0</strong> skips the movie and does not count.
+        </p>
+
+        <div class="progress-wrap">
+            <div class="progress-label">
+                Rated: <span id="rated-count">0</span> / 10
+            </div>
+            <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill"></div>
+            </div>
+        </div>
+
+        <div id="movie-box" class="movie-single">
+            <div class="movie-tag">Now showing</div>
+            <div id="movie-title" class="movie-title-large"></div>
+            <div class="rating-row" id="rating-row">
+                <button type="button" class="rate-btn skip" data-rating="0">0</button>
+                <button type="button" class="rate-btn" data-rating="1">1</button>
+                <button type="button" class="rate-btn" data-rating="2">2</button>
+                <button type="button" class="rate-btn" data-rating="3">3</button>
+                <button type="button" class="rate-btn" data-rating="4">4</button>
+                <button type="button" class="rate-btn" data-rating="5">5</button>
+            </div>
+            <p class="hint">0 = haven't seen it, 5 = loved it</p>
+        </div>
+
+        <form id="ratings-form" method="post" action="/recommend"></form>
+    </div>
+</div>
+
+<script>
+    const movies = {{ movies|tojson }};
+    let currentIndex = 0;
+    let countedRatings = 0;
+
+    const movieTitleEl = document.getElementById("movie-title");
+    const ratedCountEl = document.getElementById("rated-count");
+    const progressFillEl = document.getElementById("progress-fill");
+    const formEl = document.getElementById("ratings-form");
+    const buttons = document.querySelectorAll(".rate-btn");
+
+    function updateProgress() {
+        ratedCountEl.textContent = countedRatings;
+        progressFillEl.style.width = `${(countedRatings / 10) * 100}%`;
+    }
+
+    function showNextMovie() {
+        if (countedRatings >= 10) {
+            formEl.submit();
+            return;
+        }
+
+        if (currentIndex >= movies.length) {
+            movieTitleEl.textContent = "No more movies available.";
+            document.getElementById("rating-row").style.display = "none";
+            return;
+        }
+
+        const [movieId, title] = movies[currentIndex];
+        movieTitleEl.textContent = title;
+    }
+
+    function addHiddenInput(movieId, rating) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = `movie_${movieId}`;
+        input.value = rating;
+        formEl.appendChild(input);
+    }
+
+    buttons.forEach(button => {
+        button.addEventListener("click", () => {
+            const rating = parseInt(button.dataset.rating, 10);
+            const [movieId, title] = movies[currentIndex];
+
+            if (rating > 0) {
+                addHiddenInput(movieId, rating);
+                countedRatings += 1;
+                updateProgress();
+            }
+
+            currentIndex += 1;
+            showNextMovie();
+        });
+    });
+
+    updateProgress();
+    showNextMovie();
+</script>
+</body>
+</html>

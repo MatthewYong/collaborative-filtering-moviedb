@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Recommendations</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <h1>Your Recommendations</h1>
+        <p class="subtitle">Model evaluation and top picks based on your ratings.</p>
+
+        <h2>RMSE</h2>
+        <p><span class="score">{{ result.rmse }}</span></p>
+
+        <h2>Held-out test predictions</h2>
+        <ul class="test-list">
+            {% for row in result.test_predictions %}
+            <li class="test-item">
+                <strong>{{ row.title }}</strong><br>
+                True rating: {{ row.true_rating }}<br>
+                Predicted: <span class="score">{{ row.predicted_rating }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <h2>Top 10 recommended movies</h2>
+        <ul class="results-list">
+            {% for movie in result.recommendations %}
+            <li class="result-item">
+                <strong>{{ loop.index }}. {{ movie.title }}</strong><br>
+                Predicted score: <span class="score">{{ movie.score }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <div class="actions">
+            <a href="/">← Rate more movies</a>
+        </div>
+    </div>
+</div>
+</body>
+</html>

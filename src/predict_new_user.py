@@ -1,17 +1,19 @@
 import pickle
+import random
 import numpy as np
+from sklearn.metrics import mean_squared_error
 
 
 MODEL_PATH = "svd_model.pkl"
 
 
-def ask_user_for_ratings(movies_to_ask):
+def ask_user_for_ratings(movies_to_ask, target_count=10):
     collected = {}
 
     print("Rate these movies from 1 to 5.")
     print("Type 0 if you don't know the movie.\n")
 
-    # Collect the User ratings on different movies
+    # Collect the user ratings on different movies
     for movie_id, title in movies_to_ask:
         while True:
             raw = input(f"{title}: ")
@@ -26,14 +28,44 @@ def ask_user_for_ratings(movies_to_ask):
         if rating != 0:
             collected[movie_id] = rating
 
-        if len(collected) >= 5:
+        if len(collected) >= target_count:
             break
 
     return collected
 
 
+def build_movies_to_ask(movie_popularity, movie_id_to_index, movie_id_to_title):
+    # 2a. Keep only movies that exist in the trained matrix and have titles
+    valid_movie_ids = [
+        mid for mid in movie_popularity.keys()
+        if mid in movie_id_to_index and mid in movie_id_to_title
+    ]
+
+    # 2b. Sort by popularity so we still prefer well-known movies
+    sorted_valid_movie_ids = sorted(
+        valid_movie_ids,
+        key=lambda mid: movie_popularity[mid],
+        reverse=True,
+    )
+
+    # 2c. Take a larger pool from the top popular movies
+    # so the choices are still recognizable, but not always identical
+    candidate_pool = sorted_valid_movie_ids[:300]
+
+    # 2d. Shuffle that pool to randomize the order
+    random.shuffle(candidate_pool)
+
+    # 2e. Convert movie ids to (movie_id, movie_title)
+    movies_to_ask = [
+        (mid, movie_id_to_title[mid])
+        for mid in candidate_pool
+    ]
+
+    return movies_to_ask
+
+
 def main():
-    # 1. Load and process the Saved pickle model
+    # 1. Load and process the saved pickle model
     with open(MODEL_PATH, "rb") as f:
         artifact = pickle.load(f)
 
@@ -45,45 +77,69 @@ def main():
     movie_id_to_title = dict(zip(movies_df["movie_id"], movies_df["movie_title"]))
     movie_id_to_index = {movie_id: i for i, movie_id in enumerate(movie_ids)}
 
-    # 2. Prepare a list of suggested movies
-    popular_movie_ids = [
-        mid for mid, _ in sorted(
-            movie_popularity.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
-        if mid in movie_id_to_index and mid in movie_id_to_title
-    ]
+    # 2. Prepare a more randomized list of suggested movies
+    movies_to_ask = build_movies_to_ask(
+        movie_popularity=movie_popularity,
+        movie_id_to_index=movie_id_to_index,
+        movie_id_to_title=movie_id_to_title,
+    )
 
-    movies_to_ask = [
-        (mid, movie_id_to_title[mid])
-        for mid in popular_movie_ids[:100]
-    ]
+    # 3. Ask the user for 10 known ratings
+    user_ratings = ask_user_for_ratings(movies_to_ask, target_count=10)
 
-    user_ratings = ask_user_for_ratings(movies_to_ask)
-
-    if len(user_ratings) < 5:
+    if len(user_ratings) < 10:
         print("\nNot enough ratings collected.")
         return
 
-    rated_indices = [movie_id_to_index[mid] for mid in user_ratings.keys()]
-    ratings_values = np.array(list(user_ratings.values()), dtype=float)
+    # 4. Split the 10 ratings into:
+    #    - first 5 for building the latent user vector
+    #    - remaining 5 for testing prediction quality
+    rated_items = list(user_ratings.items())
 
-    # 3. Find the latent vector for movies the user rated
-    # The equation  = movie_factors × user_vector ≈ ratings
-    movie_factors = Vt[:, rated_indices].T
-    user_vector, *_ = np.linalg.lstsq(movie_factors, ratings_values, rcond=None)
+    train_ratings = dict(rated_items[:5])
+    test_ratings = dict(rated_items[5:10])
 
-    # 4. Predict preference scores for all movies
+    # 5. Convert the first 5 training ratings into matrix indices and values
+    train_indices = [movie_id_to_index[mid] for mid in train_ratings.keys()]
+    train_values = np.array(list(train_ratings.values()), dtype=float)
+
+    # 6. Find the latent vector for the new user
+    #    Equation: movie_factors @ user_vector ≈ train_values
+    movie_factors = Vt[:, train_indices].T
+    user_vector, *_ = np.linalg.lstsq(movie_factors, train_values, rcond=None)
+
+    # 7. Predict preference scores for all movies
     preds = user_vector @ Vt
 
-    # 5. Clean up already rated movies
+    # 8. Evaluate the model on the 5 held-out test ratings
+    y_true = []
+    y_pred = []
+
+    print("\nTest predictions on the extra 5 ratings:\n")
+    for movie_id, true_rating in test_ratings.items():
+        idx = movie_id_to_index[movie_id]
+        pred_rating = preds[idx]
+
+        y_true.append(true_rating)
+        y_pred.append(pred_rating)
+
+        title = movie_id_to_title[movie_id]
+        print(
+            f"{title} | true={true_rating} | predicted={pred_rating:.3f}"
+        )
+
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    print(f"\nRMSE on the 5 held-out ratings: {rmse:.3f}")
+
+    # 9. Remove all movies the user already rated
+    #    so they are not recommended again
     for mid in user_ratings.keys():
         preds[movie_id_to_index[mid]] = -np.inf
 
+    # 10. Sort predictions descending and keep the top 10
     top_indices = np.argsort(preds)[::-1][:10]
 
-    # 6. Show top 10 Recommended movies
+    # 11. Show top 10 recommended movies
     print("\nTop 10 recommended movies:\n")
     for rank, idx in enumerate(top_indices, start=1):
         movie_id = movie_ids[idx]
