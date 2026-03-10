@@ -1,0 +1,4 @@
+numpy
+pandas
+scikit-learn
+# scikit-surprise # not supported on Python 3.14 currently
