@@ -1,9 +1,22 @@
 import pickle
 import random
 import numpy as np
+from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics import mean_squared_error
 
 MODEL_PATH = "svd_model.pkl"
+
+DEFAULT_CONFIG = {
+    "n_components": 20,
+    "random_state": 42,
+    "ask_pool_size": 300,
+    "ask_count": 100,
+    "min_ratings_required": 10,
+    "train_rating_count": 5,
+    "test_rating_count": 5,
+    "ridge_alpha": 0.0,
+    "clip_predictions": True,
+}
 
 
 def load_artifact():
@@ -11,7 +24,52 @@ def load_artifact():
         return pickle.load(f)
 
 
-def build_movies_to_ask(movie_popularity, movie_id_to_index, movie_id_to_title):
+def normalize_config(config=None):
+    merged = DEFAULT_CONFIG.copy()
+    if config:
+        merged.update(config)
+
+    merged["n_components"] = int(merged["n_components"])
+    merged["random_state"] = int(merged["random_state"])
+    merged["ask_pool_size"] = int(merged["ask_pool_size"])
+    merged["ask_count"] = int(merged["ask_count"])
+    merged["min_ratings_required"] = int(merged["min_ratings_required"])
+    merged["train_rating_count"] = int(merged["train_rating_count"])
+    merged["test_rating_count"] = int(merged["test_rating_count"])
+    merged["ridge_alpha"] = float(merged["ridge_alpha"])
+    merged["clip_predictions"] = bool(merged["clip_predictions"])
+
+    if merged["n_components"] < 2:
+        raise ValueError("n_components must be at least 2")
+
+    if merged["ask_pool_size"] < 10:
+        raise ValueError("ask_pool_size must be at least 10")
+
+    if merged["ask_count"] < 10:
+        raise ValueError("ask_count must be at least 10")
+
+    if merged["ask_count"] > merged["ask_pool_size"]:
+        raise ValueError("ask_count cannot be larger than ask_pool_size")
+
+    if merged["min_ratings_required"] < 2:
+        raise ValueError("min_ratings_required must be at least 2")
+
+    if merged["train_rating_count"] < 1 or merged["test_rating_count"] < 1:
+        raise ValueError("train_rating_count and test_rating_count must be at least 1")
+
+    if merged["ridge_alpha"] < 0:
+        raise ValueError("ridge_alpha cannot be negative")
+
+    return merged
+
+
+def build_movies_to_ask(
+        movie_popularity,
+        movie_id_to_index,
+        movie_id_to_title,
+        ask_pool_size=300,
+        ask_count=100,
+):
     valid_movie_ids = [
         mid for mid in movie_popularity.keys()
         if mid in movie_id_to_index and mid in movie_id_to_title
@@ -23,19 +81,20 @@ def build_movies_to_ask(movie_popularity, movie_id_to_index, movie_id_to_title):
         reverse=True,
     )
 
-    candidate_pool = sorted_valid_movie_ids[:300]
+    candidate_pool = sorted_valid_movie_ids[:ask_pool_size]
     random.shuffle(candidate_pool)
 
     movies_to_ask = [
         (mid, movie_id_to_title[mid])
-        for mid in candidate_pool[:100]
+        for mid in candidate_pool[:ask_count]
     ]
 
     return movies_to_ask
 
 
-def get_movies_to_ask():
+def get_movies_to_ask(config=None):
     artifact = load_artifact()
+    config = normalize_config(config)
 
     movie_ids = artifact["movie_ids"]
     movies_df = artifact["movies_df"]
@@ -48,33 +107,89 @@ def get_movies_to_ask():
         movie_popularity=movie_popularity,
         movie_id_to_index=movie_id_to_index,
         movie_id_to_title=movie_id_to_title,
+        ask_pool_size=config["ask_pool_size"],
+        ask_count=config["ask_count"],
     )
 
 
-def recommend_for_new_user(user_ratings):
-    artifact = load_artifact()
+def build_vt_from_artifact(artifact, n_components, random_state):
+    if "R" not in artifact:
+        raise ValueError(
+            "Model artifact does not contain 'R'. "
+            "Please retrain the model and regenerate svd_model.pkl "
+            "using the updated training script."
+        )
 
-    Vt = artifact["Vt"]
+    R = artifact["R"]
+
+    max_components = min(R.shape[0], R.shape[1]) - 1
+    if max_components < 2:
+        raise ValueError("Matrix is too small to build SVD components")
+
+    n_components = min(n_components, max_components)
+
+    svd = TruncatedSVD(n_components=n_components, random_state=random_state)
+    svd.fit_transform(R)
+
+    return svd.components_
+
+
+def solve_user_vector(movie_factors, train_values, ridge_alpha=0.0):
+    if ridge_alpha > 0:
+        xtx = movie_factors.T @ movie_factors
+        reg = ridge_alpha * np.eye(xtx.shape[0])
+        xty = movie_factors.T @ train_values
+        return np.linalg.solve(xtx + reg, xty)
+
+    user_vector, *_ = np.linalg.lstsq(movie_factors, train_values, rcond=None)
+    return user_vector
+
+
+def recommend_for_new_user(user_ratings, config=None):
+    artifact = load_artifact()
+    config = normalize_config(config)
+
     movie_ids = artifact["movie_ids"]
     movies_df = artifact["movies_df"]
 
     movie_id_to_title = dict(zip(movies_df["movie_id"], movies_df["movie_title"]))
     movie_id_to_index = {movie_id: i for i, movie_id in enumerate(movie_ids)}
 
-    rated_items = list(user_ratings.items())
-    if len(rated_items) < 10:
-        raise ValueError("Need at least 10 ratings")
+    required_total = config["train_rating_count"] + config["test_rating_count"]
+    if len(user_ratings) < max(config["min_ratings_required"], required_total):
+        raise ValueError(
+            f"Need at least {max(config['min_ratings_required'], required_total)} ratings"
+        )
 
-    train_ratings = dict(rated_items[:5])
-    test_ratings = dict(rated_items[5:10])
+    Vt = build_vt_from_artifact(
+        artifact=artifact,
+        n_components=config["n_components"],
+        random_state=config["random_state"],
+    )
+
+    rated_items = list(user_ratings.items())
+    train_ratings = dict(rated_items[:config["train_rating_count"]])
+    test_ratings = dict(
+        rated_items[
+        config["train_rating_count"]:
+        config["train_rating_count"] + config["test_rating_count"]
+        ]
+    )
 
     train_indices = [movie_id_to_index[mid] for mid in train_ratings.keys()]
     train_values = np.array(list(train_ratings.values()), dtype=float)
 
     movie_factors = Vt[:, train_indices].T
-    user_vector, *_ = np.linalg.lstsq(movie_factors, train_values, rcond=None)
+    user_vector = solve_user_vector(
+        movie_factors=movie_factors,
+        train_values=train_values,
+        ridge_alpha=config["ridge_alpha"],
+    )
 
     preds = user_vector @ Vt
+
+    if config["clip_predictions"]:
+        preds = np.clip(preds, 1.0, 5.0)
 
     y_true = []
     y_pred = []
@@ -112,4 +227,5 @@ def recommend_for_new_user(user_ratings):
         "rmse": round(rmse, 3),
         "test_predictions": test_predictions,
         "recommendations": recommendations,
+        "config_used": config,
     }

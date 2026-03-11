@@ -11,6 +11,19 @@
         <h1>Your Recommendations</h1>
         <p class="subtitle">Model evaluation and top picks based on your ratings.</p>
 
+        <h2>Parameters used</h2>
+        <ul class="config-list">
+            <li class="config-item"><strong>SVD components (k):</strong> {{ result.config_used.n_components }}</li>
+            <li class="config-item"><strong>Random state:</strong> {{ result.config_used.random_state }}</li>
+            <li class="config-item"><strong>Ask pool size:</strong> {{ result.config_used.ask_pool_size }}</li>
+            <li class="config-item"><strong>Ask count:</strong> {{ result.config_used.ask_count }}</li>
+            <li class="config-item"><strong>Min ratings required:</strong> {{ result.config_used.min_ratings_required }}</li>
+            <li class="config-item"><strong>Train rating count:</strong> {{ result.config_used.train_rating_count }}</li>
+            <li class="config-item"><strong>Test rating count:</strong> {{ result.config_used.test_rating_count }}</li>
+            <li class="config-item"><strong>Ridge alpha:</strong> {{ result.config_used.ridge_alpha }}</li>
+            <li class="config-item"><strong>Clip predictions:</strong> {{ result.config_used.clip_predictions }}</li>
+        </ul>
+
         <h2>RMSE</h2>
         <p><span class="score">{{ result.rmse }}</span></p>
 

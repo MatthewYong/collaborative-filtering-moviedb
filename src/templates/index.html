@@ -10,34 +10,186 @@
     <div class="card single-card">
         <h1>Rate Movies</h1>
         <p class="subtitle">
-            Rate 10 movies to get recommendations.
+            Rate movies first, then adjust backend settings below if you want to experiment.
             Choosing <strong>0</strong> skips the movie and does not count.
         </p>
 
-        <div class="progress-wrap">
-            <div class="progress-label">
-                Rated: <span id="rated-count">0</span> / 10
+        <form id="ratings-form" method="post" action="/recommend">
+            <div class="progress-wrap">
+                <div class="progress-label">
+                    Rated: <span id="rated-count">0</span> / <span id="required-count">{{ config.min_ratings_required }}</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
             </div>
-            <div class="progress-bar">
-                <div id="progress-fill" class="progress-fill"></div>
-            </div>
-        </div>
 
-        <div id="movie-box" class="movie-single">
-            <div class="movie-tag">Now showing</div>
-            <div id="movie-title" class="movie-title-large"></div>
-            <div class="rating-row" id="rating-row">
-                <button type="button" class="rate-btn skip" data-rating="0">0</button>
-                <button type="button" class="rate-btn" data-rating="1">1</button>
-                <button type="button" class="rate-btn" data-rating="2">2</button>
-                <button type="button" class="rate-btn" data-rating="3">3</button>
-                <button type="button" class="rate-btn" data-rating="4">4</button>
-                <button type="button" class="rate-btn" data-rating="5">5</button>
+            <div id="movie-box" class="movie-single">
+                <div class="movie-tag">Now showing</div>
+                <div id="movie-title" class="movie-title-large"></div>
+                <div class="rating-row" id="rating-row">
+                    <button type="button" class="rate-btn skip" data-rating="0">0</button>
+                    <button type="button" class="rate-btn" data-rating="1">1</button>
+                    <button type="button" class="rate-btn" data-rating="2">2</button>
+                    <button type="button" class="rate-btn" data-rating="3">3</button>
+                    <button type="button" class="rate-btn" data-rating="4">4</button>
+                    <button type="button" class="rate-btn" data-rating="5">5</button>
+                </div>
+                <p class="hint">0 = haven't seen it, 5 = loved it</p>
             </div>
-            <p class="hint">0 = haven't seen it, 5 = loved it</p>
-        </div>
 
-        <form id="ratings-form" method="post" action="/recommend"></form>
+            <div class="settings-box bottom-settings">
+                <div class="settings-header">
+                    <h2>Model settings</h2>
+                    <p class="settings-subtitle">
+                        Hover the info icon for each setting to see what it does and what happens if you change it.
+                    </p>
+                </div>
+
+                <div class="settings-grid">
+                    <label class="field">
+                        <span class="field-label">
+                            SVD components (k)
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Number of latent factors used by SVD.
+                                    Higher values can capture more detailed preference patterns, but may overfit or become noisier.
+                                    Lower values are simpler and faster, but may miss useful structure.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="n_components" min="2" value="{{ config.n_components }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Random state
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Seed for random initialization in SVD.
+                                    Changing this may slightly change the learned factors and predictions.
+                                    Keeping it fixed makes results more repeatable.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="random_state" min="0" value="{{ config.random_state }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Ask pool size
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Number of popular movies considered before choosing the movies shown to the user.
+                                    Larger values increase variety.
+                                    Smaller values focus more on the most well-known movies, which may help users rate enough items.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="ask_pool_size" min="10" value="{{ config.ask_pool_size }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Ask count
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Total number of candidate movies placed into the front-end queue for rating.
+                                    Larger values give the user more chances to reach the required rating count.
+                                    Smaller values make the session shorter but may run out of movies sooner.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="ask_count" min="10" value="{{ config.ask_count }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Min ratings required
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Minimum number of non-zero ratings required before recommendations can be generated.
+                                    Higher values usually give the model more information about the user.
+                                    Lower values make the app easier to use but can reduce personalization quality.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="min_ratings_required" min="2" value="{{ config.min_ratings_required }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Train rating count
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Number of user ratings used to fit the new user's latent profile.
+                                    Increasing this usually improves stability because more ratings are used for learning.
+                                    Decreasing it makes the model rely on less information.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="train_rating_count" min="1" value="{{ config.train_rating_count }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Test rating count
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Number of ratings held out for evaluation only.
+                                    Higher values make RMSE evaluation a bit more meaningful, but leave fewer ratings for learning.
+                                    Lower values give more ratings to training, but RMSE becomes less informative.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="test_rating_count" min="1" value="{{ config.test_rating_count }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Ridge alpha
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Regularization strength when solving the new user's vector.
+                                    Higher values reduce extreme fitted weights and can improve stability.
+                                    Too high can make predictions flatter and less personalized.
+                                    Zero means ordinary least squares without regularization.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="ridge_alpha" min="0" step="0.01" value="{{ config.ridge_alpha }}">
+                    </label>
+
+                    <label class="field checkbox-field">
+                        <span class="field-label">
+                            Clip predictions to 1–5
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Forces predicted ratings into the normal rating range of 1 to 5.
+                                    Turning this on prevents unrealistic scores like below 1 or above 5.
+                                    Turning it off shows the raw model output, which may help debugging but can look less natural.
+                                </span>
+                            </span>
+                        </span>
+                        <input
+                                type="checkbox"
+                                name="clip_predictions"
+                                value="true"
+                                {% if config.clip_predictions %}checked{% endif %}
+                        >
+                    </label>
+                </div>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -48,17 +200,27 @@
 
     const movieTitleEl = document.getElementById("movie-title");
     const ratedCountEl = document.getElementById("rated-count");
+    const requiredCountEl = document.getElementById("required-count");
     const progressFillEl = document.getElementById("progress-fill");
     const formEl = document.getElementById("ratings-form");
     const buttons = document.querySelectorAll(".rate-btn");
 
+    function getRequiredRatings() {
+        const minRatings = parseInt(formEl.elements["min_ratings_required"].value || "10", 10);
+        const trainCount = parseInt(formEl.elements["train_rating_count"].value || "5", 10);
+        const testCount = parseInt(formEl.elements["test_rating_count"].value || "5", 10);
+        return Math.max(minRatings, trainCount + testCount);
+    }
+
     function updateProgress() {
+        const requiredRatings = getRequiredRatings();
         ratedCountEl.textContent = countedRatings;
-        progressFillEl.style.width = `${(countedRatings / 10) * 100}%`;
+        requiredCountEl.textContent = requiredRatings;
+        progressFillEl.style.width = `${Math.min((countedRatings / requiredRatings) * 100, 100)}%`;
     }
 
     function showNextMovie() {
-        if (countedRatings >= 10) {
+        if (countedRatings >= getRequiredRatings()) {
             formEl.submit();
             return;
         }
@@ -74,6 +236,12 @@
     }
 
     function addHiddenInput(movieId, rating) {
+        const existing = formEl.querySelector(`input[name="movie_${movieId}"]`);
+        if (existing) {
+            existing.value = rating;
+            return;
+        }
+
         const input = document.createElement("input");
         input.type = "hidden";
         input.name = `movie_${movieId}`;
@@ -95,6 +263,10 @@
             currentIndex += 1;
             showNextMovie();
         });
+    });
+
+    ["min_ratings_required", "train_rating_count", "test_rating_count"].forEach(name => {
+        formEl.elements[name].addEventListener("input", updateProgress);
     });
 
     updateProgress();

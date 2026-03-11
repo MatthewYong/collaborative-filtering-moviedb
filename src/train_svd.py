@@ -6,6 +6,7 @@ from paths import RATINGS_PATH, MOVIES_PATH
 
 MODEL_PATH = "svd_model.pkl"
 
+
 def main():
     # 1. Import and read data
     ratings_df = pd.read_csv(
@@ -59,6 +60,7 @@ def main():
     )
 
     R = R_df.values
+
     # Parameter to set model accuracy vs speed
     k = 20
     svd = TruncatedSVD(n_components=k, random_state=42)
@@ -73,8 +75,10 @@ def main():
     )
 
     artifact = {
+        "R": R,
         "Vt": Vt,
         "movie_ids": R_df.columns.tolist(),
+        "user_ids": R_df.index.tolist(),
         "movies_df": movies_df,
         "movie_popularity": movie_popularity.to_dict(),
         "k": k,
@@ -89,5 +93,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
