@@ -1,4 +1,12 @@
 from flask import Flask, render_template, request
+from train_model import (
+    run_training,
+    DEFAULT_K_CANDIDATES,
+    DEFAULT_MODEL_PATH,
+    DEFAULT_TEST_SPLIT,
+    DEFAULT_VAL_SPLIT,
+    DEFAULT_RANDOM_STATE,
+)
 from src.recommend import DEFAULT_CONFIG, get_movies_to_ask, recommend_for_new_user
 
 app = Flask(__name__, template_folder="src/templates", static_folder="src/static")
@@ -98,6 +106,70 @@ def recommend():
         return str(e), 503
 
     return render_template("results.html", result=result)
+
+
+TRAIN_DEFAULTS = {
+    "test_split": DEFAULT_TEST_SPLIT,
+    "val_split": DEFAULT_VAL_SPLIT,
+    "random_state": DEFAULT_RANDOM_STATE,
+    "k_candidates": ",".join(str(k) for k in DEFAULT_K_CANDIDATES),
+    "model_path": DEFAULT_MODEL_PATH,
+}
+
+
+def parse_k_candidates(raw):
+    """Parse a comma-separated string like '10,20,30,50,100' into a sorted int list."""
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    values = []
+    for p in parts:
+        try:
+            v = int(p)
+            if v >= 2:
+                values.append(v)
+        except ValueError:
+            pass
+    return sorted(set(values)) if values else DEFAULT_K_CANDIDATES
+
+
+@app.route("/train", methods=["GET"])
+def train_get():
+    return render_template("train.html", defaults=TRAIN_DEFAULTS, result=None, error=None)
+
+
+@app.route("/train", methods=["POST"])
+def train_post():
+    form = request.form
+    params = {
+        "test_split": parse_float(form, "test_split", TRAIN_DEFAULTS["test_split"]),
+        "val_split": parse_float(form, "val_split", TRAIN_DEFAULTS["val_split"]),
+        "random_state": parse_int(form, "random_state", TRAIN_DEFAULTS["random_state"]),
+        "k_candidates_raw": form.get("k_candidates", TRAIN_DEFAULTS["k_candidates"]),
+        "model_path": form.get("model_path", "").strip() or TRAIN_DEFAULTS["model_path"],
+    }
+    params["k_candidates"] = parse_k_candidates(params["k_candidates_raw"])
+
+    # Re-populate form values exactly as the user typed them
+    displayed = {
+        "test_split": params["test_split"],
+        "val_split": params["val_split"],
+        "random_state": params["random_state"],
+        "k_candidates": params["k_candidates_raw"],
+        "model_path": params["model_path"],
+    }
+
+    try:
+        result = run_training(
+            model_path=params["model_path"],
+            k_candidates=params["k_candidates"],
+            test_split=params["test_split"],
+            val_split=params["val_split"],
+        )
+    except Exception as e:
+        return render_template(
+            "train.html", defaults=displayed, result=None, error=str(e)
+        )
+
+    return render_template("train.html", defaults=displayed, result=result, error=None)
 
 
 if __name__ == "__main__":

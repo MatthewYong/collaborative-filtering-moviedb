@@ -1,0 +1,368 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Model Training</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .train-btn {
+            display: inline-block;
+            margin-top: 24px;
+            padding: 16px 40px;
+            border-radius: 16px;
+            border: none;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            color: #fff;
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+        .train-btn:hover {
+            opacity: 0.88;
+            transform: translateY(-2px);
+        }
+        .train-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-section {
+            margin-top: 32px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            padding: 18px 16px;
+            border-radius: 16px;
+            background: linear-gradient(180deg, #162033, #101726);
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--success);
+        }
+
+        .stat-value.neutral {
+            color: var(--text);
+        }
+
+        .tuning-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .tuning-table th {
+            text-align: left;
+            color: var(--muted);
+            font-weight: 700;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .tuning-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(120, 140, 180, 0.08);
+        }
+
+        .tuning-table tr.best-row td {
+            color: var(--success);
+            font-weight: 700;
+        }
+
+        .error-box {
+            margin-top: 24px;
+            padding: 18px 20px;
+            border-radius: 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .saved-path {
+            margin-top: 12px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            background: rgba(45, 212, 191, 0.08);
+            border: 1px solid rgba(45, 212, 191, 0.22);
+            color: var(--success);
+            font-size: 13px;
+            font-family: monospace;
+        }
+
+        .spinner {
+            display: none;
+            margin-left: 12px;
+            width: 18px;
+            height: 18px;
+            border: 3px solid rgba(255,255,255,0.25);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .field input[type="text"] {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(125, 145, 190, 0.22);
+            background: #0d1424;
+            color: var(--text);
+            font-size: 15px;
+            outline: none;
+        }
+
+        .field input[type="text"]:focus {
+            border-color: rgba(124, 92, 255, 0.7);
+        }
+
+        .nav-bar {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 28px;
+            font-size: 14px;
+        }
+
+        .nav-bar a {
+            color: var(--muted);
+            transition: color 0.12s ease;
+        }
+
+        .nav-bar a:hover {
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        .nav-bar a.active {
+            color: var(--text);
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card single-card">
+
+        <nav class="nav-bar">
+            <a href="/">← Rate &amp; Recommend</a>
+            <a href="/train" class="active">Model Training</a>
+        </nav>
+
+        <h1>Model Training</h1>
+        <p class="subtitle">
+            Tune the training parameters below, then click <strong>Run Training</strong> to retrain
+            the SVD model and save it to disk. The app will use the new model immediately.
+        </p>
+
+        <form id="train-form" method="post" action="/train">
+            <div class="settings-box">
+                <div class="settings-header">
+                    <h2>Training parameters</h2>
+                    <p class="settings-subtitle">
+                        These control how the model is built. Training can take a few seconds.
+                    </p>
+                </div>
+
+                <div class="settings-grid">
+
+                    <label class="field">
+                        <span class="field-label">
+                            Test split
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Fraction of all rating rows reserved exclusively for the final test evaluation.
+                                    This set is never seen during k-tuning.
+                                    Typical value: 0.20 (20%).
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="test_split" min="0.05" max="0.50" step="0.01"
+                               value="{{ defaults.test_split }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Validation split
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Fraction of all rating rows used as the validation set when tuning k.
+                                    Must be smaller than test split.
+                                    Typical value: 0.05 (5%).
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="val_split" min="0.01" max="0.30" step="0.01"
+                               value="{{ defaults.val_split }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Random state
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Seed for the train/val/test split.
+                                    Fixing this makes splits reproducible.
+                                    Changing it reshuffles the data.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="number" name="random_state" min="0" value="{{ defaults.random_state }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            k candidates
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    Comma-separated list of SVD component counts to try during hyperparameter tuning.
+                                    Each k is trained on the train set and evaluated on the validation set.
+                                    The k with the lowest validation RMSE is selected.
+                                    Example: 10,20,30,50,100
+                                </span>
+                            </span>
+                        </span>
+                        <input type="text" name="k_candidates" value="{{ defaults.k_candidates }}">
+                    </label>
+
+                    <label class="field">
+                        <span class="field-label">
+                            Model output path
+                            <span class="tooltip">
+                                <span class="tooltip-icon">?</span>
+                                <span class="tooltip-text">
+                                    File path where the trained model artifact will be saved.
+                                    The Flask app loads this file on startup.
+                                    Relative paths are resolved from the project root.
+                                </span>
+                            </span>
+                        </span>
+                        <input type="text" name="model_path" value="{{ defaults.model_path }}">
+                    </label>
+
+                </div>
+            </div>
+
+            <button type="submit" class="train-btn" id="run-btn">
+                Run Training
+                <span class="spinner" id="spinner"></span>
+            </button>
+        </form>
+
+        {% if error %}
+        <div class="error-box">
+            <strong>Training failed:</strong><br>{{ error }}
+        </div>
+        {% endif %}
+
+        {% if result %}
+        <div class="result-section">
+            <h2>Training results</h2>
+
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Best k</div>
+                    <div class="stat-value">{{ result.best_k }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Val RMSE</div>
+                    <div class="stat-value">{{ result.val_rmse }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Test RMSE</div>
+                    <div class="stat-value">{{ result.test_rmse }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Users</div>
+                    <div class="stat-value neutral">{{ result.n_users }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Movies</div>
+                    <div class="stat-value neutral">{{ result.n_movies }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Ratings</div>
+                    <div class="stat-value neutral">{{ result.n_ratings }}</div>
+                </div>
+            </div>
+
+            <h2>Split sizes</h2>
+            <ul class="config-list" style="grid-template-columns: repeat(3,1fr);">
+                <li class="config-item"><strong>Train:</strong> {{ result.split_sizes.train }}</li>
+                <li class="config-item"><strong>Validation:</strong> {{ result.split_sizes.val }}</li>
+                <li class="config-item"><strong>Test:</strong> {{ result.split_sizes.test }}</li>
+            </ul>
+
+            <h2 style="margin-top:24px;">k tuning results</h2>
+            <div class="settings-box" style="padding:0; overflow:hidden;">
+                <table class="tuning-table">
+                    <thead>
+                        <tr>
+                            <th>k</th>
+                            <th>Val RMSE</th>
+                            <th>Ratings evaluated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in result.tuning_results %}
+                        <tr {% if row.k == result.best_k %}class="best-row"{% endif %}>
+                            <td>{{ row.k }}{% if row.k == result.best_k %} ★{% endif %}</td>
+                            <td>{{ row.val_rmse }}</td>
+                            <td>{{ row.n }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="saved-path">
+                ✓ Model saved to: {{ result.model_path }}
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+<script>
+    document.getElementById("train-form").addEventListener("submit", function () {
+        const btn = document.getElementById("run-btn");
+        const spinner = document.getElementById("spinner");
+        btn.disabled = true;
+        btn.childNodes[0].textContent = "Training…  ";
+        spinner.style.display = "inline-block";
+    });
+</script>
+</body>
+</html>

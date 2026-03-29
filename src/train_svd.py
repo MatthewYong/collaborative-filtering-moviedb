@@ -40,23 +40,30 @@ def load_data():
 # Step 2 – Data splitting  (rows of ratings_df, never the pivot matrix)
 # ---------------------------------------------------------------------------
 
-def split_data(ratings_df):
+def split_data(ratings_df, test_split=0.20, val_split=0.05, random_state=42):
     """
     Split rating rows into train / validation / test sets.
 
-    Sizes (approximate):
-        train      : 75 % of all ratings  (used to fit SVD during tuning)
-        validation :  5 % of all ratings  (used to pick the best k)
-        test       : 20 % of all ratings  (evaluated exactly once at the end)
+    Parameters
+    ----------
+    test_split   : fraction of all ratings reserved for the test set (default 0.20)
+    val_split    : fraction of all ratings reserved for validation (default 0.05)
+    random_state : random seed for reproducible splits (default 42)
+
+    Sizes (with defaults):
+        train      : ~75 % of all ratings  (used to fit SVD during tuning)
+        validation :  ~5 % of all ratings  (used to pick the best k)
+        test       : ~20 % of all ratings  (evaluated exactly once at the end)
 
     The test set is held out completely and never touched during tuning.
     """
     train_val_df, test_df = train_test_split(
-        ratings_df, test_size=0.20, random_state=42
+        ratings_df, test_size=test_split, random_state=random_state
     )
-    # 5 / 80 = 0.0625 gives us ~5 % of the full dataset for validation
+    # Convert absolute val_split fraction to a fraction of train_val
+    val_size_of_trainval = val_split / (1.0 - test_split)
     train_df, val_df = train_test_split(
-        train_val_df, test_size=0.0625, random_state=42
+        train_val_df, test_size=val_size_of_trainval, random_state=random_state
     )
     return train_df, val_df, test_df
 
