@@ -1,14 +1,14 @@
+import os
 import pickle
 import random
 import numpy as np
-from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics import mean_squared_error
 
 MODEL_PATH = "svd_model.pkl"
 
 DEFAULT_CONFIG = {
-    "n_components": 20,
-    "random_state": 42,
+    "n_components": 20,     # display only -- reflects the trained model's k
+    "random_state": 42,     # display only -- used during training, not inference
     "ask_pool_size": 300,
     "ask_count": 100,
     "min_ratings_required": 10,
@@ -18,10 +18,21 @@ DEFAULT_CONFIG = {
     "clip_predictions": True,
 }
 
+_artifact = None
 
-def load_artifact():
-    with open(MODEL_PATH, "rb") as f:
-        return pickle.load(f)
+
+def _get_artifact():
+    """Lazy-load the model artifact. Raises RuntimeError if file is missing."""
+    global _artifact
+    if _artifact is None:
+        if not os.path.exists(MODEL_PATH):
+            raise RuntimeError(
+                f"Model file '{MODEL_PATH}' not found. "
+                "Run 'python train_model.py' to train the model first."
+            )
+        with open(MODEL_PATH, "rb") as f:
+            _artifact = pickle.load(f)
+    return _artifact
 
 
 def normalize_config(config=None):
@@ -38,9 +49,6 @@ def normalize_config(config=None):
     merged["test_rating_count"] = int(merged["test_rating_count"])
     merged["ridge_alpha"] = float(merged["ridge_alpha"])
     merged["clip_predictions"] = bool(merged["clip_predictions"])
-
-    if merged["n_components"] < 2:
-        raise ValueError("n_components must be at least 2")
 
     if merged["ask_pool_size"] < 10:
         raise ValueError("ask_pool_size must be at least 10")
@@ -93,7 +101,7 @@ def build_movies_to_ask(
 
 
 def get_movies_to_ask(config=None):
-    artifact = load_artifact()
+    artifact = _get_artifact()
     config = normalize_config(config)
 
     movie_ids = artifact["movie_ids"]
@@ -112,28 +120,6 @@ def get_movies_to_ask(config=None):
     )
 
 
-def build_vt_from_artifact(artifact, n_components, random_state):
-    if "R" not in artifact:
-        raise ValueError(
-            "Model artifact does not contain 'R'. "
-            "Please retrain the model and regenerate svd_model.pkl "
-            "using the updated training script."
-        )
-
-    R = artifact["R"]
-
-    max_components = min(R.shape[0], R.shape[1]) - 1
-    if max_components < 2:
-        raise ValueError("Matrix is too small to build SVD components")
-
-    n_components = min(n_components, max_components)
-
-    svd = TruncatedSVD(n_components=n_components, random_state=random_state)
-    svd.fit_transform(R)
-
-    return svd.components_
-
-
 def solve_user_vector(movie_factors, train_values, ridge_alpha=0.0):
     if ridge_alpha > 0:
         xtx = movie_factors.T @ movie_factors
@@ -146,11 +132,15 @@ def solve_user_vector(movie_factors, train_values, ridge_alpha=0.0):
 
 
 def recommend_for_new_user(user_ratings, config=None):
-    artifact = load_artifact()
+    artifact = _get_artifact()
     config = normalize_config(config)
 
+    Vt = artifact["Vt"]
     movie_ids = artifact["movie_ids"]
     movies_df = artifact["movies_df"]
+
+    # Override display-only n_components with the actual trained k
+    config["n_components"] = artifact["k"]
 
     movie_id_to_title = dict(zip(movies_df["movie_id"], movies_df["movie_title"]))
     movie_id_to_index = {movie_id: i for i, movie_id in enumerate(movie_ids)}
@@ -160,12 +150,6 @@ def recommend_for_new_user(user_ratings, config=None):
         raise ValueError(
             f"Need at least {max(config['min_ratings_required'], required_total)} ratings"
         )
-
-    Vt = build_vt_from_artifact(
-        artifact=artifact,
-        n_components=config["n_components"],
-        random_state=config["random_state"],
-    )
 
     rated_items = list(user_ratings.items())
     train_ratings = dict(rated_items[:config["train_rating_count"]])

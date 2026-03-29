@@ -28,6 +28,8 @@ def parse_bool(form, key, default):
 
 
 def read_config_from_form(form):
+    # n_components and random_state are training-time params — parsed for
+    # display in results.html only; they do not affect SVD inference.
     return {
         "n_components": parse_int(form, "n_components", DEFAULT_CONFIG["n_components"]),
         "random_state": parse_int(form, "random_state", DEFAULT_CONFIG["random_state"]),
@@ -59,9 +61,12 @@ def read_config_from_form(form):
 
 @app.route("/", methods=["GET"])
 def index():
-    config = DEFAULT_CONFIG.copy()
-    movies = get_movies_to_ask(config=config)
-    return render_template("index.html", movies=movies, config=config)
+    try:
+        config = DEFAULT_CONFIG.copy()
+        movies = get_movies_to_ask(config=config)
+        return render_template("index.html", movies=movies, config=config)
+    except RuntimeError as e:
+        return str(e), 503
 
 
 @app.route("/recommend", methods=["POST"])
@@ -87,7 +92,11 @@ def recommend():
             f"ratings above 0. Currently got {len(user_ratings)}."
         )
 
-    result = recommend_for_new_user(user_ratings, config=config)
+    try:
+        result = recommend_for_new_user(user_ratings, config=config)
+    except RuntimeError as e:
+        return str(e), 503
+
     return render_template("results.html", result=result)
 
 
