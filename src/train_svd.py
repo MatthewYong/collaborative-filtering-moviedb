@@ -69,26 +69,46 @@ def split_data(ratings_df, test_split=0.20, val_split=0.05, random_state=42):
 
 
 # ---------------------------------------------------------------------------
-# Step 3 – Build pivot matrix
+# Step 3 – Build pivot matrix (user-mean-centered)
 # ---------------------------------------------------------------------------
 
 def build_matrix(ratings_subset):
     """
-    Build a user × movie pivot matrix from a ratings DataFrame subset.
+    Build a mean-centered user × movie pivot matrix.
+
+    Steps
+    -----
+    1. Build the pivot table with NaN for missing (unobserved) ratings.
+    2. Compute each user's mean using only their observed ratings.
+    3. Subtract the user mean from each observed rating  (centering).
+    4. Fill missing values with 0.0  — only AFTER centering, so that
+       "zero" means "around the user's average", not "no interaction".
 
     Returns
     -------
-    R         : 2-D numpy array  (users × movies), zeros for missing ratings
+    R         : 2-D numpy array (users × movies), centered, 0 for missing
     user_ids  : list of user IDs  (row labels)
     movie_ids : list of movie IDs (column labels)
+    user_means: dict  {user_id: mean_rating}  — needed at prediction time
     """
+    # Step 1 – pivot with NaN for missing
     R_df = ratings_subset.pivot_table(
         index="user_id",
         columns="movie_id",
         values="rating",
-        fill_value=0.0,
     )
-    return R_df.values, R_df.index.tolist(), R_df.columns.tolist()
+
+    # Step 2 – per-user mean over observed ratings only
+    user_means_series = R_df.mean(axis=1)           # NaN-aware mean
+    user_means = user_means_series.to_dict()
+
+    # Step 3 – subtract user mean from observed entries
+    R_centered = R_df.sub(user_means_series, axis=0)
+
+    # Step 4 – fill missing with 0 AFTER centering
+    R_centered = R_centered.fillna(0.0)
+
+    return R_centered.values, R_df.index.tolist(), R_df.columns.tolist(), user_means
 
 
 # ---------------------------------------------------------------------------
@@ -115,13 +135,25 @@ def train_svd(R, k):
 # Step 5 – RMSE evaluation
 # ---------------------------------------------------------------------------
 
-def compute_rmse(reconstructed, user_ids, movie_ids, eval_df):
+def compute_rmse(reconstructed, user_ids, movie_ids, eval_df, user_means):
     """
-    Compute RMSE between the reconstructed matrix and actual ratings.
+    Compute RMSE between reconstructed (centered) predictions and actual ratings.
 
-    Assumption: entries whose user or movie does not appear in the training
-    pivot matrix (cold-start) are skipped, because the reconstructed matrix
-    has no row / column for them.
+    The reconstructed matrix stores centered predictions, so each predicted
+    rating is reconstructed as:
+
+        predicted = centered_prediction + user_mean
+
+    Predictions are clipped to [1, 5] before computing error.
+    Entries whose user or movie did not appear in the training matrix are skipped.
+
+    Parameters
+    ----------
+    reconstructed : 2-D numpy array of centered SVD predictions
+    user_ids      : list of user IDs (row labels of reconstructed)
+    movie_ids     : list of movie IDs (column labels of reconstructed)
+    eval_df       : DataFrame with columns [user_id, movie_id, rating]
+    user_means    : dict {user_id: mean_rating} from the training matrix
 
     Returns
     -------
@@ -141,8 +173,41 @@ def compute_rmse(reconstructed, user_ids, movie_ids, eval_df):
         if uid not in user_index or mid not in movie_index:
             continue
 
-        predicted = reconstructed[user_index[uid], movie_index[mid]]
+        centered_pred = reconstructed[user_index[uid], movie_index[mid]]
+        user_mean = user_means.get(uid, 0.0)
+        predicted = float(np.clip(centered_pred + user_mean, 1.0, 5.0))
+
         squared_errors.append((predicted - actual) ** 2)
+
+    if not squared_errors:
+        return None, 0
+
+    return float(np.sqrt(np.mean(squared_errors))), len(squared_errors)
+
+
+# ---------------------------------------------------------------------------
+# Step 5b – Baseline RMSE (global mean predictor)
+# ---------------------------------------------------------------------------
+
+def compute_baseline_rmse(train_df, eval_df):
+    """
+    Predict the global mean rating (from train_df) for every entry in eval_df.
+
+    This gives a simple reference point: any decent model should beat it.
+    Predictions are clipped to [1, 5] for consistency with compute_rmse.
+
+    Returns
+    -------
+    rmse  : float baseline RMSE
+    count : number of pairs evaluated
+    """
+    global_mean = float(train_df["rating"].mean())
+    prediction = float(np.clip(global_mean, 1.0, 5.0))
+
+    squared_errors = [
+        (prediction - row["rating"]) ** 2
+        for _, row in eval_df.iterrows()
+    ]
 
     if not squared_errors:
         return None, 0
@@ -165,13 +230,18 @@ def tune_k(train_df, val_df, k_candidates):
     """
     print("\n--- Hyperparameter Tuning (k = n_components) ---")
 
+    # Baseline: predict global mean for everyone
+    baseline_rmse, baseline_count = compute_baseline_rmse(train_df, val_df)
+    print(f"  baseline (global mean)  val_RMSE={baseline_rmse:.4f}  (n={baseline_count})")
+    print()
+
     # Build the training matrix once — all candidates share it
-    R_train, user_ids, movie_ids = build_matrix(train_df)
+    R_train, user_ids, movie_ids, user_means = build_matrix(train_df)
 
     tuning_results = []
     for k in k_candidates:
         reconstructed, _ = train_svd(R_train, k)
-        rmse, count = compute_rmse(reconstructed, user_ids, movie_ids, val_df)
+        rmse, count = compute_rmse(reconstructed, user_ids, movie_ids, val_df, user_means)
         print(f"  k={k:>4}  val_RMSE={rmse:.4f}  (n={count})")
         tuning_results.append((k, rmse, count))
 

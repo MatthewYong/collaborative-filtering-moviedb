@@ -163,14 +163,21 @@ def recommend_for_new_user(user_ratings, config=None):
     train_indices = [movie_id_to_index[mid] for mid in train_ratings.keys()]
     train_values = np.array(list(train_ratings.values()), dtype=float)
 
+    # Center the new user's ratings by their own mean before projecting into
+    # the SVD space (which was trained on mean-centered data).
+    user_mean = float(np.mean(train_values))
+    centered_train_values = train_values - user_mean
+
     movie_factors = Vt[:, train_indices].T
     user_vector = solve_user_vector(
         movie_factors=movie_factors,
-        train_values=train_values,
+        train_values=centered_train_values,
         ridge_alpha=config["ridge_alpha"],
     )
 
-    preds = user_vector @ Vt
+    # Predict in centered space, then add the user's mean back
+    centered_preds = user_vector @ Vt
+    preds = centered_preds + user_mean
 
     if config["clip_predictions"]:
         preds = np.clip(preds, 1.0, 5.0)

@@ -259,12 +259,20 @@
                     <div class="stat-value">{{ result.best_k }}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Val RMSE</div>
+                    <div class="stat-label">Val RMSE (SVD)</div>
                     <div class="stat-value">{{ result.val_rmse }}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Test RMSE</div>
+                    <div class="stat-label">Val RMSE (baseline)</div>
+                    <div class="stat-value" style="color:var(--muted);">{{ result.baseline_val_rmse }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Test RMSE (SVD)</div>
                     <div class="stat-value">{{ result.test_rmse }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Test RMSE (baseline)</div>
+                    <div class="stat-value" style="color:var(--muted);">{{ result.baseline_test_rmse }}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Users</div>
